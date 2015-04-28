@@ -1,13 +1,7 @@
 /*
-        demo-udp-03: udp-send: a simple udp client (KRISSA: this will be the server)
-	send udp messages
-	This sends a sequence of messages (the # of messages is defined in MSGS)
-	The messages are sent to a port defined in SERVICE_PORT
-
-        usage:  udp-send
-
-        Paul Krzyzanowski
-*/
+ File: udp-Server.c
+ By: Gerard Andrew C. Ursabia
+ */
 
 #include <stdlib.h>
 #include <stdio.h>

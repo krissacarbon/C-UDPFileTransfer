@@ -1,10 +1,6 @@
 /*
- demo-udp-03: udp-recv: a simple udp server (KRISSA: this will be the client)
-	receive udp messages
- 
- usage:  udp-recv
- 
- Paul Krzyzanowski
+File: udp-Server.c
+By: Gerard Andrew C. Ursabia
  */
 
 #include <stdlib.h>
