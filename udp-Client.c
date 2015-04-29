@@ -14,15 +14,26 @@
 
 #define BUFLEN 2048
 #define MSGS 1	/* number of messages to send */
+#define MAX_TASKS 5
 
+//socket interaction functions
+void recvMsgs(socklen_t sock, struct sockaddr_in addr, socklen_t len);
+void sendAck(socklen_t sock, struct sockaddr_in addr, socklen_t len);
+
+//packet related functions
 void insertPacketsToLinkList(unsigned char data[], int start, int end, int chunk);
+void insertAckToQueue(int num);
+void traverseCurrAck(int n);
 void display();
 void tokenizePacket(char *data, char *delim, char *dataUntokened);
+
+//util functions
 int strtoint_n(char* str, int n);
 int strtoint(char* str);
 void tostring(char str[], int num);
 void delay(int milliseconds);
 
+//structs al FIFO
 struct node
 {
     unsigned char data[BUFLEN];
@@ -31,21 +42,33 @@ struct node
     struct node *next;
 }*head, *tail;
 
+struct ack
+{
+    int ackNum;
+    struct ack *next;
+}*first, *last, *curr;
+
+struct tasklist {
+    int task_count;
+    void (*task_function[MAX_TASKS])(socklen_t sock, struct sockaddr_in addr, socklen_t len);
+};
+
+//declarations
 char filename[BUFLEN], windowsize[BUFLEN], chunksize[BUFLEN], isn[BUFLEN], timeout[BUFLEN], delayAck[BUFLEN], addrPort[BUFLEN], config[BUFLEN];
 int delayInMilSec;
+char buf[BUFLEN], bufSend[BUFLEN];	/* message buffer */
+int recvlen; /* recv message length */
+int complete_flag=0;
 
 int main(int argc, char **argv)
 {
 	struct sockaddr_in myaddr, remaddr;
 	socklen_t fd, i, slen=sizeof(remaddr);
-    char buf[BUFLEN];	/* message buffer */
-    int recvlen, msgcnt=0, n=0, x=0;		/* # bytes in acknowledgement message */
+    int msgcnt=0, n=0;		/* # bytes in acknowledgement message */
 	char *server = "127.0.0.1";	/* change this to use a different server */
-    int isVerbose = 0, tempStartInt = 0;
+    int isVerbose = 0;
     unsigned char *currData;
-    char temp_start[11], temp_ack[11];
-    int chunksizeInt = strtoint(chunksize);
-    char temp_data[chunksizeInt];
+
     
     /*get arguments*/
     
@@ -75,8 +98,6 @@ int main(int argc, char **argv)
             isVerbose = 1;
         }
     }
-    
-    delayInMilSec = strtoint(delayAck)*1000;
     
     printf("delayInMilSec is %d\n", delayInMilSec);
     
@@ -125,111 +146,110 @@ int main(int argc, char **argv)
 		fprintf(stderr, "inet_aton() failed\n");
 		exit(1);
 	}
-
-	/* now let's send the configurations to server */
-
-//	for (i=0; i < MSGS; i++) {
-////		printf("Sending packet %d to %s port %d\n", i, server, SERVICE_PORT);
-//        printf("Sending filename to server...");
-////        sprintf(buf, filename);
-//        strcpy(buf, config);
-//		if (sendto(fd, buf, strlen(buf), 0, (struct sockaddr *)&remaddr, slen)==-1) {
-//			perror("sendto");
-//			exit(1);
-//		}
-//		/* now receive an acknowledgement from the server */
-//		recvlen = recvfrom(fd, buf, BUFLEN, 0, (struct sockaddr *)&remaddr, &slen);
-//                if (recvlen >= 0) {
-//                        buf[recvlen] = 0;	/* expect a printable string - terminate it */
-//                        printf("server received filename: \"%s\"\n", buf);
-//                }
-//    }
     
-    /* now let's send the configurations to server */
+    /* Send the configurations to server */
     strcpy(buf, config);
     if (sendto(fd, buf, strlen(buf), 0, (struct sockaddr *)&remaddr, slen)==-1) {
         perror("sendto");
     }
     
-    for (;;){
+    int j;
+    struct tasklist tl;
+    
+    tl.task_count = 2;
+    tl.task_function[0] = recvMsgs;
+    tl.task_function[1] = sendAck;
+    
+    while (1){
         
-        /*start listening*/
-        recvlen = recvfrom(fd, buf, BUFLEN, 0, (struct sockaddr *)&remaddr, &slen);
-        
-        /*process received data from Server*/
-        if (recvlen >= 0) {
-            buf[recvlen] = 0;	/* expect a printable string - terminate it */
-            if (strstr(buf, "ssn") != NULL) {/*receiving data packets*/
-                printf("received packet : %s \n", buf);
-//                currData = buf;
-                //TODO: tokenized received packet
-                strncpy(temp_data, buf, strtoint(chunksize));
-                tokenizePacket(buf,"-:",temp_data);
-//                insertPacketsToLinkList(currData,0,0);
-                
-                
-                strcpy(buf,"ACK-");
-                
-                if (tail != NULL) {
-                    tempStartInt = tail->startSeqNumber+strtoint(chunksize);
-                }else {
-                    tempStartInt = head->startSeqNumber+strtoint(chunksize);
-                }
-                tostring(temp_start,tempStartInt);
-                strcat(buf,temp_start);
-                
-                
-                //TODO: delay here (for loop does the delay)
-                for(x=0;x<1;x++)
-                {
-                    printf("%d\n",x+1);
-                    delay(delayInMilSec);
-                    printf("sending \"%s\" to server\n", buf);
-                    
-                    if (sendto(fd, buf, strlen(buf), 0, (struct sockaddr *)&remaddr, slen)==-1) {
-                        perror("sendto");
-                    }
-                    
-                }
-                
-                
-
-            }else {
-                printf("received complete message : %s \n", buf);
-                
-                display();
-                
-                close(fd);
-            }
+//        /*start listening*/
+//        recvMsgs(fd, remaddr, slen);
+//
+//        /*send acknowledgements*/
+//        sendAck(fd, remaddr, slen);
+        for (j = 0; j < tl.task_count; j++) {
+            tl.task_function[j](fd, remaddr, slen);   // execute the task's function
         }
-        
-//        if (recvlen > 0) {
-//            buf[recvlen] = 0;
-//            printf("received packet: \"%s\" (%d bytes)\n", buf, slen);
-//        }
-//        else{
-//            printf("uh oh - something went wrong!\n");
-//        }
-//        
-//        sprintf(buf, "ack %d", msgcnt++);
-//        printf("sending response \"%s\"\n", buf);
-//        if (sendto(fd, buf, strlen(buf), 0, (struct sockaddr *)&remaddr, slen)==-1) {
-//            perror("sendto");
-//            exit(1);
-//        }
-
     
     }
-    
-//	close(fd);
 	return 0;
 }
 
+void recvMsgs(socklen_t sock, struct sockaddr_in addr, socklen_t len){
+    int tempStartInt = 0, chunksizeInt = strtoint(chunksize);
+    char temp_data[chunksizeInt], temp_start[11];
+    
+    recvlen = recvfrom(sock, buf, BUFLEN, 0, (struct sockaddr *)&addr, &len);
+    
+    if (recvlen >= 0){
+        buf[recvlen] = 0;	/* expect a printable string - terminate it */
+        if (strstr(buf, "ssn") != NULL) {/*receiving data packets*/
+            
+            printf("received packet : %s \n", buf);
+            
+            strncpy(temp_data, buf, strtoint(chunksize));
+            
+            tokenizePacket(buf,"-:",temp_data);
+            
+            if (tail != NULL) {
+                tempStartInt = tail->startSeqNumber+strtoint(chunksize);
+            }else {
+                tempStartInt = head->startSeqNumber+strtoint(chunksize);
+            }
+            
+            printf("insertAckToQueue : %d \n", tempStartInt);
+            insertAckToQueue(tempStartInt);
+            
+        }else{
+            //TODO: finalize completion handling
+            printf("received complete message : %s \n", buf);
+            complete_flag=1;
+            display(); //writes to file
+        }
+    }
+
+}
+
+void sendAck(socklen_t sock, struct sockaddr_in addr, socklen_t len){
+    int x = 0;
+    char ackNumString[11];
+    
+    delayInMilSec = strtoint(delayAck)*1000;
+    
+    if (complete_flag == 1) {
+        return;
+    }
+    
+    do{
+        
+//        printf("trying to traverse\n");
+        traverseCurrAck(1);
+        
+        strcpy(bufSend,"ACK-");
+        tostring(ackNumString, curr->ackNum);
+        strcat(bufSend,ackNumString);
+        
+        for(x=0;x<1;x++)
+        {
+            printf("%d\n",x+1);
+            
+            delay(delayInMilSec);
+            
+            printf("sending \"%s\" to server\n", bufSend);
+            
+            if (sendto(sock, bufSend, strlen(bufSend), 0, (struct sockaddr *)&addr, len)==-1) {
+                perror("sendto");
+            }
+        }
+        
+    }while (curr != last);
+
+}
 void insertPacketsToLinkList(unsigned char data[], int start, int end, int chunk){
     int i;
     struct node *temp;
     temp=(struct node*)malloc(sizeof(struct node));
-    printf("from buffer:%s\n",data);
+//    printf("from buffer:%s\n",data);
     //    strcpy(temp->data,data);
     //    memcpy(temp->data, data, strlen(data)+1);
     for (i=0;i<chunk;i++){
@@ -253,6 +273,49 @@ void insertPacketsToLinkList(unsigned char data[], int start, int end, int chunk
             tail = temp;
         }
     }
+}
+
+void insertAckToQueue(int num){
+    struct ack *temp;
+    
+//    printf("krissa trying to insert into queue");
+    
+    temp=(struct ack*)malloc(sizeof(struct ack));
+    temp->ackNum=num;
+    
+    if (first == NULL) {
+        first = temp;
+        first->next = NULL;
+        last=first;//single element would mean it is the first and last
+    }else{
+        if (last == NULL) { //never going to happen
+            last = temp;
+            first->next = last;
+            last->next = NULL;
+        }else {
+            last->next = temp;
+            temp->next = NULL;
+            last = temp;
+        }
+    }
+    
+//    printf("last->ackNum in insertAckToQueue %d \n", last->ackNum);
+}
+
+void traverseCurrAck(int n){ //traverse base node n times
+    int i = 0;
+    struct ack *temp;
+    
+    if (curr == NULL) {
+        temp=first;
+    }else{
+        temp=curr;
+        for (i = 0; i<n; i++) {
+            temp=temp->next;
+        }
+    }
+    
+    curr = temp;
 }
 
 void display()
